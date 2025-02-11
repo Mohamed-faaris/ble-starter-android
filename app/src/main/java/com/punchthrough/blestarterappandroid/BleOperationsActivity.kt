@@ -22,6 +22,8 @@ import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
 import android.content.Context
+import android.location.Location
+import android.location.LocationManager
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
@@ -42,6 +44,7 @@ import com.punchthrough.blestarterappandroid.ble.isWritable
 import com.punchthrough.blestarterappandroid.ble.isWritableWithoutResponse
 import com.punchthrough.blestarterappandroid.ble.toHexString
 import com.punchthrough.blestarterappandroid.databinding.ActivityBleOperationsBinding
+import com.punchthrough.blestarterappandroid.network.HttpUtil
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -79,6 +82,11 @@ class BleOperationsActivity : AppCompatActivity() {
         }
     }
     private val notifyingCharacteristics = mutableListOf<UUID>()
+    private val specificUUID = SPECIFIC_UUID
+
+    companion object {
+        private val SPECIFIC_UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb") // Example UUID for Heart Rate Service
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,6 +101,7 @@ class BleOperationsActivity : AppCompatActivity() {
             title = getString(R.string.ble_playground)
         }
         setupRecyclerView()
+        logAllServices()
         binding.requestMtuButton.setOnClickListener {
             val userInput = binding.mtuField.text
             if (userInput.isNotEmpty() && userInput.isNotBlank()) {
@@ -235,6 +244,8 @@ class BleOperationsActivity : AppCompatActivity() {
 
             onCharacteristicChanged = { _, characteristic, value ->
                 log("Value changed on ${characteristic.uuid}: ${value.toHexString()}")
+                // Send data for both specific UUID and logging
+                sendPostRequest(value.toHexString(), characteristic.uuid.toString())
             }
 
             onNotificationsEnabled = { _, characteristic ->
@@ -245,6 +256,38 @@ class BleOperationsActivity : AppCompatActivity() {
             onNotificationsDisabled = { _, characteristic ->
                 log("Disabled notifications on ${characteristic.uuid}")
                 notifyingCharacteristics.remove(characteristic.uuid)
+            }
+        }
+    }
+
+    private fun sendPostRequest(data: String, uuid: String) {
+        val url = "https://lmnv26jr-3000.inc1.devtunnels.ms/log"
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val location: Location? = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        val latitude = location?.latitude ?: 0.0
+        val longitude = location?.longitude ?: 0.0
+        val json = """{"data": "$data", "uuid": "$uuid", "latitude": $latitude, "longitude": $longitude}"""
+        Thread {
+            val response = HttpUtil.post(url, json)
+            response?.let { responseBody ->
+                val bodyString = responseBody.body?.string()
+                runOnUiThread {
+                    log("POST request response: $bodyString")
+                }
+            } ?: runOnUiThread {
+                log("Failed to send POST request")
+            }
+        }.start()
+    }
+
+    private fun logAllServices() {
+        ConnectionManager.servicesOnDevice(device)?.forEach { service ->
+            log("Service Found: ${service.uuid}")
+            service.characteristics?.forEach { characteristic ->
+                log("  Characteristic: ${characteristic.uuid}")
+                characteristic.descriptors?.forEach { descriptor ->
+                    log("    Descriptor: ${descriptor.uuid}")
+                }
             }
         }
     }

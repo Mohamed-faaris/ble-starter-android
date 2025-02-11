@@ -30,9 +30,12 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.UiThread
@@ -44,6 +47,7 @@ import androidx.recyclerview.widget.SimpleItemAnimator
 import com.punchthrough.blestarterappandroid.ble.ConnectionEventListener
 import com.punchthrough.blestarterappandroid.ble.ConnectionManager
 import com.punchthrough.blestarterappandroid.databinding.ActivityMainBinding
+import com.punchthrough.blestarterappandroid.network.HttpUtil
 import timber.log.Timber
 
 private const val PERMISSION_REQUEST_CODE = 1
@@ -112,6 +116,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.scanButton.setOnClickListener { if (isScanning) stopBleScan() else startBleScan() }
         setupRecyclerView()
+        //sendAppStarted()
     }
 
     override fun onResume() {
@@ -205,10 +210,17 @@ class MainActivity : AppCompatActivity() {
         if (!hasRequiredBluetoothPermissions()) {
             requestRelevantBluetoothPermissions(PERMISSION_REQUEST_CODE)
         } else {
+            // Send "started" message to server
+            Thread {
+                val json = """{"data": "started", "uuid": "scan", "latitude": 0.0, "longitude": 0.0}"""
+                HttpUtil.post("https://lmnv26jr-3000.inc1.devtunnels.ms/log", json)
+            }.start()
+
             scanResults.clear()
             scanResultAdapter.notifyDataSetChanged()
             bleScanner.startScan(null, scanSettings, scanCallback)
             isScanning = true
+            sendStartedScan()
         }
     }
 
@@ -265,6 +277,84 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.quit) { _, _ -> finishAndRemoveTask() }
             .setCancelable(false)
             .show()
+    }
+
+    private fun sendStartedScan() {
+        if (!hasLocationPermissions()) {
+            requestLocationPermission()
+            return
+        }
+
+        val url = "https://lmnv26jr-3000.inc1.devtunnels.ms/log"
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val location: Location? = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        val latitude = location?.latitude ?: 0.0
+        val longitude = location?.longitude ?: 0.0
+        val json = """{"data": "started", "uuid": "scan", "latitude": $latitude, "longitude": $longitude}"""
+        
+        Thread {
+            val response = HttpUtil.post(url, json)
+            response?.let { responseBody ->
+                val bodyString = responseBody.body?.string()
+                runOnUiThread {
+                    Log.d("MainActivity", "POST request response: $bodyString")
+                }
+            } ?: run {
+                runOnUiThread {
+                    Log.d("MainActivity", "Failed to send POST request")
+                }
+            }
+        }.start()
+    }
+
+    private fun sendAppStarted() {
+        if (!hasLocationPermissions()) {
+            requestLocationPermission()
+            return
+        }
+
+        val url = "https://lmnv26jr-3000.inc1.devtunnels.ms/log"
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val location: Location? = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        val latitude = location?.latitude ?: 0.0
+        val longitude = location?.longitude ?: 0.0
+        val json = """{"data": "app started", "uuid": "app", "latitude": $latitude, "longitude": $longitude}"""
+        
+        Thread {
+            val response = HttpUtil.post(url, json)
+            response?.let { responseBody ->
+                val bodyString = responseBody.body?.string()
+                runOnUiThread {
+                    Log.d("MainActivity", "POST request response: $bodyString")
+                }
+            } ?: run {
+                runOnUiThread {
+                    Log.d("MainActivity", "Failed to send POST request")
+                }
+            }
+        }.start()
+    }
+
+    private fun hasLocationPermissions(): Boolean {
+        return ActivityCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED ||
+        ActivityCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestLocationPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
+            PERMISSION_REQUEST_CODE
+        )
     }
 
     /*******************************************

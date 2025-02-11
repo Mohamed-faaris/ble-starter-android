@@ -1,5 +1,7 @@
 # .gitignore from https://raw.githubusercontent.com/github/gitignore/master/Android.gitignore
 
+.idea
+
 # Built application files
 *.apk
 *.ap_
